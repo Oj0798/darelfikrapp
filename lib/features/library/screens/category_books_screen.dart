@@ -157,7 +157,7 @@ class _CategoryBooksScreenState extends State<CategoryBooksScreen> {
   }
 }
 
-class VolumesScreen extends StatelessWidget {
+class VolumesScreen extends StatefulWidget {
   final LibraryRepository repo;
   final Work work;
   final bool isSubscribed;
@@ -170,6 +170,30 @@ class VolumesScreen extends StatelessWidget {
     required this.isSubscribed,
     required this.tier,
   });
+
+  @override
+  State<VolumesScreen> createState() => _VolumesScreenState();
+}
+
+class _VolumesScreenState extends State<VolumesScreen> {
+  bool isSubscribed = false;
+  String? tier;
+
+  @override
+  void initState() {
+    super.initState();
+    isSubscribed = widget.isSubscribed;
+    tier = widget.tier;
+  }
+
+  Future<void> _reloadSubscription() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (!mounted) return;
+    setState(() {
+      isSubscribed = prefs.getBool('df_is_subscribed') ?? false;
+      tier = prefs.getString('df_subscription_tier');
+    });
+  }
 
   List<String> _grantedTagsForTier(String? tier) {
     switch (tier) {
@@ -206,17 +230,24 @@ class VolumesScreen extends StatelessWidget {
   Future<void> _showUpgradeDialog(BuildContext context, List<String> tags) async {
     await showDialog(
       context: context,
-      builder: (_) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         title: const Text('Upgrade required'),
         content: Text(
           'Your plan (${_prettyTier(tier)}) does not include this work.\n\nRequired: ${tags.join(', ')}',
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Not now')),
+          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Not now')),
           ElevatedButton(
             onPressed: () async {
-              Navigator.pop(context);
+              Navigator.pop(dialogContext);
               await Navigator.pushNamed(context, AppRoutes.subscription);
+              await _reloadSubscription();
+              if (!mounted) return;
+              if (_hasAccess(tags)) {
+                return;
+              }
+
+              await _showUpgradeDialog(context, tags);
             },
             child: const Text('View subscriptions'),
           ),
@@ -228,9 +259,9 @@ class VolumesScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(work.titleEn)),
+      appBar: AppBar(title: Text(widget.work.titleEn)),
       body: FutureBuilder<List<Volume>>(
-        future: repo.getVolumesForWork(work.id),
+        future: widget.repo.getVolumesForWork(widget.work.id),
         builder: (context, snap) {
           if (snap.connectionState != ConnectionState.done) {
             return const SafeArea(child: Center(child: CircularProgressIndicator()));
@@ -249,8 +280,16 @@ class VolumesScreen extends StatelessWidget {
                 borderRadius: BorderRadius.circular(18),
                 onTap: () async {
                   // Access check on VOLUME tap
-                  if (isSubscribed && !_hasAccess(work.tags)) {
-                    await _showUpgradeDialog(context, work.tags);
+                  if (isSubscribed && !_hasAccess(widget.work.tags)) {
+                    await _showUpgradeDialog(context, widget.work.tags);
+                    if (!mounted) return;
+                    if (isSubscribed && !_hasAccess(widget.work.tags)) {
+                      return;
+                    }
+                  }
+
+                  if (!mounted) return;
+                  if (isSubscribed && !_hasAccess(widget.work.tags)) {
                     return;
                   }
 
@@ -258,10 +297,10 @@ class VolumesScreen extends StatelessWidget {
                     context,
                     MaterialPageRoute(
                       builder: (_) => ReaderScreen(
-                        workId: work.id,
-                        workTitleEn: work.titleEn,
+                        workId: widget.work.id,
+                        workTitleEn: widget.work.titleEn,
                         volumeNumber: v.volumeNumber,
-                        requiredTags: work.tags,
+                        requiredTags: widget.work.tags,
                       ),
                     ),
                   );
