@@ -40,6 +40,14 @@ class _ReaderScreenState extends State<ReaderScreen> {
 static const _kTierKey = 'df_subscription_tier';
 
 String? subscriptionTier;
+
+bool get _isEntitled => isSubscribed && _hasAccessToBook();
+
+void _clampCurrentPageIfNeeded() {
+  if (!_isEntitled && currentPage > widget.freePages) {
+    currentPage = widget.freePages;
+  }
+}
   String _prettyTier(String? tier) {
     switch (tier) {
       case 'tier1':
@@ -88,6 +96,7 @@ Future<void> _loadSubscription() async {
   setState(() {
     isSubscribed = saved;
     subscriptionTier = tier;
+    _clampCurrentPageIfNeeded();
   });
 }
 
@@ -109,8 +118,8 @@ void initState() {
 
   @override
   Widget build(BuildContext context) {
-   final bool previewEnded = currentPage > widget.freePages;
-final bool hasAccess = isSubscribed && _hasAccessToBook();
+   final bool previewEnded = currentPage >= widget.freePages;
+final bool hasAccess = _isEntitled;
 final bool isLocked = previewEnded && !hasAccess;
 
 
@@ -190,32 +199,23 @@ final bool isLocked = previewEnded && !hasAccess;
   child: _LockedView(
     isSubscribed: isSubscribed,
     onViewSubscriptions: () async {
-      final selectedTier = await Navigator.pushNamed(
+      await Navigator.pushNamed(
         context,
         AppRoutes.subscription,
       );
-if (!mounted) return;
+      await _loadSubscription();
+      if (!mounted) return;
 
+      if (!_isEntitled) {
+        setState(() {
+          _clampCurrentPageIfNeeded();
+        });
+        return;
+      }
 
-    if (selectedTier is SubscriptionTier) {
-  final tier = selectedTier.name; // enum -> String
-
-  await _saveSubscription(subscribed: true, tier: tier);
-
-  if (!mounted) return;
-
-  setState(() {
-    isSubscribed = true;
-    subscriptionTier = tier;
-  });
-
-  ScaffoldMessenger.of(context).showSnackBar(
-   SnackBar(content: Text('Unlocked with: ${_prettyTier(tier)}')),
-
-  );
-}
-
-
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Unlocked with: ${_prettyTier(subscriptionTier)}')),
+      );
     },
   ),
 ),
@@ -240,13 +240,16 @@ if (!mounted) return;
               child: const Text('Previous'),
             ),
             ElevatedButton(
-             onPressed: isLocked
-    ? null
-    : () => setState(() {
-          currentPage++;
-
-        }),
-
+              onPressed: (!hasAccess && currentPage >= widget.freePages)
+                  ? null
+                  : () => setState(() {
+                        final nextPage = currentPage + 1;
+                        if (!hasAccess && nextPage > widget.freePages) {
+                          currentPage = widget.freePages;
+                          return;
+                        }
+                        currentPage = nextPage;
+                      }),
               child: const Text('Next'),
             ),
           ],

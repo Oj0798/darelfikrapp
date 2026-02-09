@@ -131,6 +131,9 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                   onPressed: () async {
   final prefs = await SharedPreferences.getInstance();
 
+  // Always mark subscription active for the selected tier.
+  await prefs.setBool('df_is_subscribed', true);
+
   // Always overwrite the tier (upgrade-safe)
   await prefs.setString(
     'df_subscription_tier',

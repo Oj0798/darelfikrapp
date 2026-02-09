@@ -128,7 +128,9 @@ class _SearchScreenState extends State<SearchScreen> {
           title: Text(w.titleEn),
           subtitle: Text(w.authorEn),
           trailing: const Icon(Icons.chevron_right),
-          onTap: () {
+          onTap: () async {
+            await _loadSubscription();
+            if (!mounted) return;
             Navigator.push(
               context,
               MaterialPageRoute(
