@@ -176,22 +176,31 @@ class VolumesScreen extends StatefulWidget {
 }
 
 class _VolumesScreenState extends State<VolumesScreen> {
-  bool isSubscribed = false;
-  String? tier;
+  static const _kIsSubscribedKey = 'df_is_subscribed';
+  static const _kTierKey = 'df_subscription_tier';
+
+  bool _isSubscribed = false;
+  String? _tier;
 
   @override
   void initState() {
     super.initState();
-    isSubscribed = widget.isSubscribed;
-    tier = widget.tier;
+    _isSubscribed = widget.isSubscribed;
+    _tier = widget.tier;
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _reloadSubscription();
   }
 
   Future<void> _reloadSubscription() async {
     final prefs = await SharedPreferences.getInstance();
     if (!mounted) return;
     setState(() {
-      isSubscribed = prefs.getBool('df_is_subscribed') ?? false;
-      tier = prefs.getString('df_subscription_tier');
+      _isSubscribed = prefs.getBool(_kIsSubscribedKey) ?? false;
+      _tier = prefs.getString(_kTierKey);
     });
   }
 
@@ -210,7 +219,7 @@ class _VolumesScreenState extends State<VolumesScreen> {
 
   bool _hasAccess(List<String> requiredTags) {
     if (requiredTags.isEmpty) return true;
-    final granted = _grantedTagsForTier(tier);
+    final granted = _grantedTagsForTier(_tier);
     return requiredTags.any(granted.contains);
   }
 
@@ -227,27 +236,30 @@ class _VolumesScreenState extends State<VolumesScreen> {
     }
   }
 
-  Future<void> _showUpgradeDialog(BuildContext context, List<String> tags) async {
+  Future<void> _showUpgradeDialog(
+    BuildContext context,
+    List<String> tags,
+    Future<void> Function() onEntitled,
+  ) async {
     await showDialog(
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('Upgrade required'),
         content: Text(
-          'Your plan (${_prettyTier(tier)}) does not include this work.\n\nRequired: ${tags.join(', ')}',
+          'Your plan (${_prettyTier(_tier)}) does not include this work.\n\nRequired: ${tags.join(', ')}',
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Not now')),
           ElevatedButton(
             onPressed: () async {
-              Navigator.pop(dialogContext);
               await Navigator.pushNamed(context, AppRoutes.subscription);
               await _reloadSubscription();
               if (!mounted) return;
               if (_hasAccess(tags)) {
+                Navigator.of(dialogContext).pop();
+                await onEntitled();
                 return;
               }
-
-              await _showUpgradeDialog(context, tags);
             },
             child: const Text('View subscriptions'),
           ),
@@ -279,31 +291,35 @@ class _VolumesScreenState extends State<VolumesScreen> {
               return InkWell(
                 borderRadius: BorderRadius.circular(18),
                 onTap: () async {
-                  // Access check on VOLUME tap
-                  if (isSubscribed && !_hasAccess(widget.work.tags)) {
-                    await _showUpgradeDialog(context, widget.work.tags);
+                  Future<void> openReader() async {
                     if (!mounted) return;
-                    if (isSubscribed && !_hasAccess(widget.work.tags)) {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => ReaderScreen(
+                          workId: widget.work.id,
+                          workTitleEn: widget.work.titleEn,
+                          volumeNumber: v.volumeNumber,
+                          requiredTags: widget.work.tags,
+                        ),
+                      ),
+                    );
+                  }
+
+                  // Access check on VOLUME tap
+                  if (_isSubscribed && !_hasAccess(widget.work.tags)) {
+                    await _showUpgradeDialog(context, widget.work.tags, openReader);
+                    if (!mounted) return;
+                    if (_isSubscribed && !_hasAccess(widget.work.tags)) {
                       return;
                     }
                   }
 
                   if (!mounted) return;
-                  if (isSubscribed && !_hasAccess(widget.work.tags)) {
+                  if (_isSubscribed && !_hasAccess(widget.work.tags)) {
                     return;
                   }
-
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => ReaderScreen(
-                        workId: widget.work.id,
-                        workTitleEn: widget.work.titleEn,
-                        volumeNumber: v.volumeNumber,
-                        requiredTags: widget.work.tags,
-                      ),
-                    ),
-                  );
+                  await openReader();
                 },
                 child: Container(
                   padding: const EdgeInsets.all(14),
